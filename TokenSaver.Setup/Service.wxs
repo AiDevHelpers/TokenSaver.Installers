@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Windows service registration for TokenSaver MCP.
+
+  Direct port of the old build/inno/TokenSaver.iss [Run]/[UninstallRun]/[Code] sections.
+  WiX's ServiceInstall/ServiceControl elements replace the manual sc.exe Exec() calls the
+  Inno script needed:
+
+    - ServiceInstall = the old `sc.exe create` + `sc.exe config` + `sc.exe description` calls
+    - ServiceControl start="install" stop="both" remove="uninstall"
+        = the old [Run] "sc.exe start", the CurStepChanged(ssInstall) pre-copy "sc.exe stop",
+          and the [UninstallRun] "sc.exe stop" + "sc.exe delete" calls, all in one place.
+          The Windows Installer service-control sequencing (stop before file replacement on
+          upgrade/repair, start after) is built into how MSI processes ServiceControl during
+          InstallExecuteSequence — no equivalent to Inno's manual Sleep(1500) hack is needed;
+          MSI waits on the SCM's stop notification itself.
+
+  ServiceConfig's failure-actions equivalent (restart/5000/restart/10000/restart/30000) isn't
+  a native WiX element — util:ServiceConfig only covers a subset of `sc.exe failure` options,
+  so it's configured via a deferred custom action calling sc.exe directly, same tool the old
+  Inno script used, just invoked through MSI's custom-action mechanism instead of [Run].
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Fragment>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ServiceComponent" Guid="3A1E9C4D-7B2F-4E6A-9C8D-1F5E7A2B4C60">
+        <File Id="TokenSaverMcpExe"
+              Source="$(PublishDir)\TokenSaver.MCP.exe"
+              KeyPath="yes" />
+
+        <!-- Equivalent of:
+               sc.exe create TokenSaverMCP binPath= "...\TokenSaver.MCP.exe" start= auto
+               sc.exe config  TokenSaverMCP binPath= "...\TokenSaver.MCP.exe" start= auto
+               sc.exe description TokenSaverMCP "Local Ollama-backed MCP server ..." -->
+        <!-- Dependency on DraftModelLoader (the router service) tells the SCM to start
+             DraftModelLoader first; if DraftModelLoader is stopped, Windows also stops
+             TokenSaverMCP before it. OllamaService.WaitForReadyAsync at startup already
+             tolerates DraftModel not being up yet, so this is a start-ordering hint, not a
+             hard requirement — TokenSaverMCP still won't fail to start if the dependency
+             is momentarily absent (e.g. mid-upgrade). -->
+        <ServiceInstall Id="TokenSaverMcpServiceInstall"
+                         Name="TokenSaverMCP"
+                         DisplayName="TokenSaver MCP"
+                         Description="Local Ollama-backed MCP server (HTTP mode) for Copilot/Continue/Cursor."
+                         Type="ownProcess"
+                         Start="auto"
+                         ErrorControl="normal"
+                         Account="LocalSystem">
+          <ServiceDependency Id="DraftModelLoader" />
+        </ServiceInstall>
+
+        <!-- Equivalent of the old [Run] "sc.exe start" (start="install"), the
+             CurStepChanged(ssInstall) pre-[Files] "sc.exe stop" (stop="both" covers both
+             install and uninstall/upgrade), and [UninstallRun]'s stop+delete
+             (remove="uninstall").
+
+             Upgrade behavior: with MajorUpgrade Schedule="afterInstallExecute" (see Product.wxs),
+             an upgrade's install pass stops the running service, replaces its files, then starts
+             it again via Start="install" — the same install-pass action fires for upgrades and
+             fresh installs. Remove="uninstall" only fires for a genuine product removal (or the
+             old product's real uninstall pass under this component's stable Guid/Name), so an
+             upgrade never deletes+recreates the SCM service registration; it's stopped and
+             restarted in place. This preserves the sc.exe failure-action config applied below by
+             FailureActionsCommand, which intentionally only reapplies on a fresh install
+             (Condition="NOT Installed"). -->
+        <ServiceControl Id="TokenSaverMcpServiceControl"
+                         Name="TokenSaverMCP"
+                         Start="install"
+                         Stop="both"
+                         Remove="uninstall"
+                         Wait="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Equivalent of:
+           sc.exe failure TokenSaverMCP reset= 86400 actions= restart/5000/restart/10000/restart/30000
+         util:ServiceConfig covers FirstFailureActionType/etc. but not the exact
+         restart/5000/restart/10000/restart/30000 three-tier backoff the old script used, so
+         reproduce it with the same tool (sc.exe) via a deferred custom action, matching what
+         Inno actually executed rather than approximating it with a different config surface. -->
+    <SetProperty Id="FailureActionsCommand"
+                 Sequence="execute"
+                 Before="FailureActionsCommand"
+                 Value="&quot;[SystemFolder]sc.exe&quot; failure TokenSaverMCP reset= 86400 actions= restart/5000/restart/10000/restart/30000" />
+    <CustomAction Id="FailureActionsCommand"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Return="ignore"
+                  Impersonate="no" />
+    <InstallExecuteSequence>
+      <Custom Action="FailureActionsCommand" After="StartServices" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

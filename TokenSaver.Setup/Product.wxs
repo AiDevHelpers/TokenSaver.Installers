@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TokenSaver MCP — main product definition.
+
+  Direct port of build/inno/TokenSaver.iss's [Setup]/[Files]/[Dirs] sections. Service
+  install/upgrade/uninstall behavior lives in Service.wxs (mirrors the old .iss [Run] /
+  [UninstallRun] / [Code] sections).
+
+  ── Update-in-place ──
+  UpgradeCode is the WiX equivalent of the Inno AppId GUID: a fixed value that must NEVER
+  change across releases. Windows Installer uses it (not ProductName) to detect "this is an
+  upgrade of an existing install" via the MajorUpgrade element below. Package/@Version should
+  be bumped per release (passed in via -p:MyAppVersion=x.y.z, see TokenSaver.Setup.wixproj).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Package Name="TokenSaver MCP"
+            Manufacturer="Richard Sperry"
+            Version="$(MyAppVersion)"
+            UpgradeCode="9F2C7B3E-4E7A-4C2E-9C2E-2C6C6E6B7A11"
+            Scope="perMachine"
+            Compressed="yes">
+
+    <!-- Upgrade-detection: same role as Inno's AppId comparison against AppVersion. Blocks
+         installing an older version over a newer one.
+
+         Schedule="afterInstallExecute" (rather than WiX's default afterInstallInitialize)
+         installs the new version's files/service "on top of" the existing install, then removes
+         only what's no longer present, instead of fully uninstalling the old product first and
+         reinstalling from scratch. For ServiceComponent in Service.wxs this means the
+         TokenSaverMCP service is stopped, has its files replaced, and is restarted in place —
+         it is NOT deleted and recreated — as long as ServiceComponent's Component/@Guid and
+         ServiceInstall/@Name stay unchanged across releases (they're hardcoded, not "*", so this
+         holds). A recreate would otherwise reset the sc.exe failure-action config applied by
+         FailureActionsCommand in Service.wxs (only re-applied when NOT Installed, i.e. on a
+         genuinely fresh install) and briefly deregister the service from the SCM. See
+         docs/versioning.md and https://learn.microsoft.com/windows/win32/msi/majorupgrade-table
+         for the RemoveExistingProducts scheduling this controls. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of TokenSaver MCP is already installed."
+                  Schedule="afterInstallExecute" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- {autopf}\TokenSaver equivalent -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="TokenSaver" />
+    </StandardDirectory>
+
+    <!-- %ProgramData%\TokenSaver — parallel to %ProgramData%\DraftModel, for config/logs
+         that should survive an uninstall/reinstall. Matches the [Dirs] section of the old
+         .iss. Marked permanent (not removed on uninstall), same as Inno's default behavior
+         for [Dirs] entries which Inno does not delete on uninstall unless flagged. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="APPDATAFOLDER" Name="TokenSaver" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="TokenSaver MCP" Level="1">
+      <ComponentGroupRef Id="TokenSaverFiles" />
+      <ComponentRef Id="AppDataFolderComponent" />
+      <ComponentRef Id="ServiceComponent" />
+    </Feature>
+
+    <!-- Mirrors [Files] Source: "{#PublishDir}\*" recursesubdirs createallsubdirs.
+         TokenSaver.MCP.exe itself is excluded here — it's harvested separately as
+         ServiceComponent in Service.wxs, which needs to own that file so it can attach
+         ServiceInstall/ServiceControl to it. Harvesting it twice (once here, once there)
+         installs the same target path from two different components, which ICE30 rejects
+         as breaking component reference counting. -->
+    <ComponentGroup Id="TokenSaverFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(PublishDir)\**">
+        <Exclude Files="$(PublishDir)\**\*.pdb" />
+        <Exclude Files="$(PublishDir)\TokenSaver.MCP.exe" />
+        <!-- Stray leftover "build\staging\..." subfolder that sometimes reappears inside
+             PublishDir itself (pre-rename artifact from an earlier publish; this drive keeps
+             restoring it even after Remove-Item). It duplicates files already harvested from
+             PublishDir's top level and is never something the installed app reads, so it must
+             never be shipped — exclude the whole subtree rather than relying on it staying
+             deleted on disk. -->
+        <Exclude Files="$(PublishDir)\build\**" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- Placeholder permanent directory component for APPDATAFOLDER, since WiX requires at
+         least one component to create/reference a directory that isn't otherwise populated
+         by files. Permanent="yes" means it (and any files an admin drops there) survives
+         uninstall, matching the old Inno [Dirs] entry's default non-removal behavior. -->
+    <DirectoryRef Id="APPDATAFOLDER">
+      <Component Id="AppDataFolderComponent" Guid="6C9B7B0E-9E2C-4B3F-8B7E-2E3F6A9C1D02" Permanent="yes">
+        <CreateFolder />
+      </Component>
+    </DirectoryRef>
+
+    <Icon Id="TokenSaverIcon" SourceFile="$(PublishDir)\TokenSaver.MCP.exe" />
+    <Property Id="ARPPRODUCTICON" Value="TokenSaverIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Build traceability: which exact commit this install was built from. Purely
+         informational (visible in Programs & Features as "Comments") — does NOT participate in
+         upgrade detection, which is Package/@Version + UpgradeCode only (MSI version fields are
+         numeric; a hash can't go there). Resolved by TokenSaver.Setup.wixproj's
+         ResolveMyAppVersionFromNbgv target via `nbgv get-version -v GitCommitIdShort`. -->
+    <Property Id="ARPCOMMENTS" Value="Build $(var.GitCommitHash)" />
+
+  </Package>
+</Wix>

@@ -1,0 +1,192 @@
+<Project Sdk="WixToolset.Sdk/6.0.0" InitialTargets="ResolveMyAppVersionFromNbgv;PublishTokenSaverMcp">
+  <!--
+    TokenSaver.MCP Windows installer (WiX v6, SDK-style project).
+
+    Replaces the old Inno Setup installer (build/inno/TokenSaver.iss, now removed). Same
+    behavior: installs TokenSaver.MCP as an always-on Windows service (HTTP mode, port 11436
+    by default) so Copilot/Continue/Cursor can reach it independent of whether Claude Desktop
+    is running its own separate stdio-spawned instance via the .mcpb.
+
+    Versioning: this project does NOT reference Nerdbank.GitVersioning directly — NBGV has a
+    known incompatibility with WiX Bundle/Package project types (CodeDomProvider not available
+    for language 'wix'; see https://github.com/orgs/wixtoolset/discussions/7322). Instead,
+    scripts\publish-tokensaver-for-wix.ps1 resolves the version via `nbgv get-version`
+    and passes it in explicitly:
+      dotnet build src\Installers\TokenSaver.Setup\TokenSaver.Setup.wixproj -p:MyAppVersion=1.0.0
+
+    If -p:MyAppVersion is not supplied (e.g. a normal `dotnet build TokenSaverMCP.slnx` or a
+    Visual Studio "Build Solution" that doesn't go through the publish script), MyAppVersion
+    falls back to the literal default below so the solution still builds standalone. See
+    docs/versioning.md.
+
+    Prerequisite: a self-contained build of TokenSaver.MCP must exist at
+    build\staging\TokenSaver.MCP (see PublishDir property below). The PublishTokenSaverMcp
+    target below (BeforeTargets="Build") handles this automatically for `dotnet build
+    TokenSaverMCP.slnx` and Visual Studio "Build Solution" — it runs `dotnet publish` on
+    TokenSaver.MCP.csproj only when the staged exe is missing or older than the source
+    project, so incremental builds don't republish every time. For a full release build
+    with an explicit version and clearer step-by-step console output, prefer
+    scripts\publish-tokensaver-for-wix.ps1 -Pack instead (mirrors the old
+    publish-tokensaver-for-inno.ps1 split between "build" and "package" steps).
+  -->
+  <PropertyGroup>
+    <!-- Resolved by ResolveMyAppVersionFromNbgv below (InitialTargets, runs before anything
+         else). This literal is now ONLY a last-resort fallback for the case where `dotnet nbgv`
+         itself fails (no git history / tool restore blocked) — it is NOT the normal path anymore.
+         Historically this literal WAS the normal path for any build that didn't go through
+         scripts\publish-tokensaver-for-wix.ps1 (a plain `dotnet build TokenSaverMCP.slnx` or VS
+         "Build Solution"), which is why Programs & Features accumulated multiple
+         "TokenSaver MCP" / "DraftModel Loader" entries all stamped 1.0.0: MajorUpgrade detects
+         upgrades by comparing Package/@Version under the same UpgradeCode, and an *identical*
+         version between installs isn't "newer" or "older" so RemoveExistingProducts never
+         fires — each build's freshly auto-generated ProductCode was installed as a brand new
+         product instead of upgrading the old one. See docs/versioning.md. -->
+    <!-- Captured BEFORE the literal-fallback defaults below are applied, so
+         ResolveMyAppVersionFromNbgv (an InitialTarget, which runs after this PropertyGroup is
+         already evaluated) can still tell "caller passed -p:MyAppVersion explicitly" apart from
+         "nothing passed, use the literal fallback" — otherwise its own Condition would see
+         MyAppVersion already non-empty (defaulted right here) and never run. -->
+    <_MyAppVersionWasUnset Condition="'$(MyAppVersion)' == ''">true</_MyAppVersionWasUnset>
+    <MyAppVersion Condition="'$(MyAppVersion)' == ''">1.0.0</MyAppVersion>
+    <GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
+    <Platform>x64</Platform>
+    <OutputType>Package</OutputType>
+    <OutputName>TokenSaver-Setup-$(MyAppVersion)</OutputName>
+    <OutputPath>..\..\..\build\dist\</OutputPath>
+    <!-- PublishDir defaults to %TEMP%\TokenSaverWixStage (always on the OS/system drive,
+         which is NTFS) rather than a path under the repo itself. This repo lives on an ReFS
+         volume, and wixnative.exe's cabinet compression (legacy Win32 FCI API) cannot read
+         self-contained publish output from ReFS — it fails with WIX0001 / "wixnative.exe
+         failed ... The system cannot find the file specified" even though every source file
+         genuinely exists (confirmed: staging + building entirely under C:\ succeeds; staging
+         on the ReFS repo drive fails regardless of where the .cab itself is written). Override
+         with -p:PublishDir=... to point at a specific staged build instead (must be on an
+         NTFS/non-ReFS volume). -->
+    <PublishDir Condition="'$(PublishDir)' == ''">$(TEMP)\TokenSaverWixStage</PublishDir>
+    <DefineConstants>
+      MyAppVersion=$(MyAppVersion);
+      GitCommitHash=$(GitCommitHash);
+      PublishDir=$(PublishDir)
+    </DefineConstants>
+    <SuppressPdbOutput>true</SuppressPdbOutput>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+  <PropertyGroup>
+    <TokenSaverMcpCsproj>$(MSBuildThisFileDirectory)..\..\..\src\Host\TokenSaver.MCP\TokenSaver.MCP.csproj</TokenSaverMcpCsproj>
+    <TokenSaverMcpStagedExe>$(PublishDir)\TokenSaver.MCP.exe</TokenSaverMcpStagedExe>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="[6.0.0]" />
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="[6.0.0]" />
+  </ItemGroup>
+  <!-- WixToolset.Sdk auto-globs *.wxs in the project directory (like other SDK-style
+       projects glob *.cs) — Product.wxs and Service.wxs are picked up automatically.
+       An explicit <Compile Include> here would double-include both files, tripping
+       WIX0089/WIX0090 "multiple entry sections" since Product.wxs's <Package> would
+       compile twice. -->
+  <!-- Inputs glob for PublishTokenSaverMcp's up-to-date check, below. TokenSaver.MCP.csproj
+       transitively references projects under src\ (CodeHelper, ContextHelper, Docs, Library)
+       and src\AgentHelpers\ (Core, Anthropic, Qwen, DeepSeek, OpenSource) — see its
+       ProjectReference list. AgentHelpers lives nested under src\, so the single
+       src\**\*.cs / **\*.csproj glob below already covers it; no separate AgentHelpers glob is
+       needed. This supplements (not replaces) TokenSaverMcpCsproj as an Inputs entry so an
+       edit to any file the publish actually depends on invalidates the staged exe, not just an
+       edit to TokenSaver.MCP.csproj's own file.
+
+       IMPORTANT: TokenSaverMcpCsproj is always listed first/unconditionally in Inputs below —
+       MSBuild treats a target's Inputs/Outputs as "nothing to do, skip entirely" whenever
+       Inputs resolves to zero items, even if Outputs is missing. A recursive wildcard glob can
+       legitimately evaluate to zero items in edge cases (SDK default-exclude interactions,
+       an as-yet-uncreated obj/ dir, a locked file mid-build, etc.), which would silently skip
+       this target and produce WIX0103 ("Cannot find the File/Icon file ...") even on a clean
+       build. Keeping TokenSaverMcpCsproj as a guaranteed-non-empty Input means the target
+       always has at least one item to evaluate staleness against. -->
+  <ItemGroup>
+    <_TokenSaverMcpPublishInputs Include="$(MSBuildThisFileDirectory)..\..\..\src\**\*.cs" Exclude="$(MSBuildThisFileDirectory)..\..\..\src\**\bin\**;$(MSBuildThisFileDirectory)..\..\..\src\**\obj\**" />
+    <_TokenSaverMcpPublishInputs Include="$(MSBuildThisFileDirectory)..\..\..\src\**\*.csproj" />
+  </ItemGroup>
+  <!-- Auto-publish TokenSaver.MCP into build\staging\TokenSaver.MCP before this project
+       builds, so `dotnet build TokenSaverMCP.slnx` and Visual Studio "Build Solution" don't
+       fail on WIX0103 (missing Icon/File) just because the manual publish script wasn't run
+       first, or because the staged exe is missing (e.g. after a clean or a fresh clone).
+       Inputs/Outputs makes this incremental: skipped only when the staged exe already exists
+       AND is newer than TokenSaverMcpCsproj and everything in _TokenSaverMcpPublishInputs —
+       re-run the publish script manually for a guaranteed-fresh package if you ever suspect
+       this heuristic missed something (e.g. a generated file, or a dependency outside these
+       two trees).
+
+       This target is wired up via the project's InitialTargets="PublishTokenSaverMcp"
+       attribute (see the <Project> element at the top of this file), NOT BeforeTargets="Build".
+       BeforeTargets="Build;Rebuild;CoreBuild" was tried first and did not reliably run under
+       Visual Studio's IDE build ("Build Solution" / F5) — WIX0103 kept firing with the staged
+       exe missing even after a full solution reload, meaning VS's build for a WixToolset.Sdk
+       project doesn't necessarily invoke a target named "Build"/"Rebuild"/"CoreBuild" as its
+       entry point the way `dotnet build`/MSBuild.exe do, so a BeforeTargets hook on those names
+       can be silently skipped. InitialTargets is not optional or dependent on which target ends
+       up being the entry point — MSBuild runs every target listed in InitialTargets before
+       ANYTHING else in the project, unconditionally, regardless of build tool or IDE. This is
+       the guaranteed fix; keep this target wired via InitialTargets, not BeforeTargets, unless
+       a future WiX SDK version documents a supported alternative.
+
+       The trailing Error task is a hard guard: if the Exec "succeeds" (exit 0) but the exe
+       still isn't where WiX expects it, fail loudly here with an actionable message instead
+       of letting the build limp forward into a confusing WIX0103 deep inside .wxs
+       compilation. -->
+  <ItemGroup>
+    <PackageReference Update="Nerdbank.GitVersioning" Version="3.10.85" />
+  </ItemGroup>
+  <!-- Resolves MyAppVersion/GitCommitHash via `dotnet nbgv` for EVERY build path (plain
+       `dotnet build TokenSaverMCP.slnx`, VS "Build Solution", and the publish script), instead
+       of only when scripts\publish-tokensaver-for-wix.ps1 is used. `nbgv` is restored as a
+       local tool from .config\dotnet-tools.json, so no global install is required.
+
+       Skipped entirely if the caller already passed -p:MyAppVersion explicitly (e.g. a release
+       pipeline that wants to hand-pin a version), matching the Condition on MyAppVersion's
+       default above.
+
+       SimpleVersion is Major.Minor.Height (e.g. 1.0.42) — a real, monotonically-increasing
+       version per commit, which is what MajorUpgrade needs to reliably tell "newer" from
+       "same"/"older" across builds. GitCommitIdShort is stamped into an MSI property
+       (see Product.wxs's ARPCOMMENTS) purely for traceability — msiexec /i with the ARP
+       "Comments" field showing exactly which commit an installed build came from — it plays
+       no role in the upgrade-detection logic itself (MSI version fields are numeric only).
+
+       Falls back to the MyAppVersion/GitCommitHash literals above (not a build error) if nbgv
+       can't resolve a version — e.g. a shallow clone with no git history, or `dotnet tool
+       restore` failing in a locked-down environment — so the wixproj still builds standalone. -->
+  <Target Name="ResolveMyAppVersionFromNbgv" Condition="'$(_MyAppVersionWasUnset)' == 'true'">
+    <Exec Command="dotnet tool restore" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" />
+
+    <Exec Command="dotnet nbgv get-version -v SimpleVersion" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_NbgvSimpleVersionLines" />
+      <Output TaskParameter="ExitCode" PropertyName="_NbgvSimpleVersionExitCode" />
+    </Exec>
+
+    <Exec Command="dotnet nbgv get-version -v GitCommitIdShort" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_NbgvGitHashLines" />
+      <Output TaskParameter="ExitCode" PropertyName="_NbgvGitHashExitCode" />
+    </Exec>
+
+    <PropertyGroup Condition="'$(_NbgvSimpleVersionExitCode)' == '0' AND '@(_NbgvSimpleVersionLines)' != ''">
+      <MyAppVersion>@(_NbgvSimpleVersionLines)</MyAppVersion>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(_NbgvGitHashExitCode)' == '0' AND '@(_NbgvGitHashLines)' != ''">
+      <GitCommitHash>@(_NbgvGitHashLines)</GitCommitHash>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(MyAppVersion)' == ''">
+      <MyAppVersion>1.0.0</MyAppVersion>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(GitCommitHash)' == ''">
+      <GitCommitHash>unknown</GitCommitHash>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="TokenSaver.Setup: MyAppVersion=$(MyAppVersion) GitCommitHash=$(GitCommitHash)" />
+  </Target>
+
+  <Target Name="PublishTokenSaverMcp" Inputs="$(TokenSaverMcpCsproj);@(_TokenSaverMcpPublishInputs)" Outputs="$(TokenSaverMcpStagedExe)">
+    <Message Importance="high" Text="TokenSaver.Setup: publishing TokenSaver.MCP to $(PublishDir) ..." />
+    <Exec Command="dotnet publish &quot;$(TokenSaverMcpCsproj)&quot; --configuration Release --runtime win-x64 --self-contained true --output &quot;$(PublishDir)&quot;" />
+    <Error Condition="!Exists('$(TokenSaverMcpStagedExe)')" Text="PublishTokenSaverMcp ran but $(TokenSaverMcpStagedExe) still doesn't exist. Run scripts\publish-tokensaver-for-wix.ps1 manually and check its output for the real dotnet publish failure." />
+  </Target>
+</Project>
