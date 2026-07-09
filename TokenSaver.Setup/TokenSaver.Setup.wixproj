@@ -186,7 +186,22 @@
 
   <Target Name="PublishTokenSaverMcp" Inputs="$(TokenSaverMcpCsproj);@(_TokenSaverMcpPublishInputs)" Outputs="$(TokenSaverMcpStagedExe)">
     <Message Importance="high" Text="TokenSaver.Setup: publishing TokenSaver.MCP to $(PublishDir) ..." />
-    <Exec Command="dotnet publish &quot;$(TokenSaverMcpCsproj)&quot; --configuration Release --runtime win-x64 --self-contained true --output &quot;$(PublishDir)&quot;" />
+    <!--
+      Resolve the dotnet executable explicitly instead of relying on Exec's spawned cmd.exe to
+      find "dotnet" on PATH. When this target runs under `dotnet build`/`dotnet test` on the
+      .slnx (as opposed to msbuild.exe or Visual Studio directly), the outer process is itself
+      the dotnet muxer — depending on how it was launched (shim, non-interactive shell, etc.)
+      the child cmd.exe it spawns for Exec doesn't always inherit a PATH that resolves "dotnet",
+      failing with exit code 9009 ("not recognized") or a bare exit code 1 with no dotnet-level
+      diagnostics. DOTNET_HOST_PATH is set by the SDK resolver to the exact dotnet(.exe) that's
+      currently running this build, so it's always valid regardless of PATH state. Fall back to
+      plain "dotnet" if it's somehow unset (e.g. very old SDKs), preserving prior behavior.
+    -->
+    <PropertyGroup>
+      <_DotnetExe Condition="'$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</_DotnetExe>
+      <_DotnetExe Condition="'$(_DotnetExe)' == ''">dotnet</_DotnetExe>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_DotnetExe)&quot; publish &quot;$(TokenSaverMcpCsproj)&quot; --configuration Release --runtime win-x64 --self-contained true --output &quot;$(PublishDir)&quot;" />
     <Error Condition="!Exists('$(TokenSaverMcpStagedExe)')" Text="PublishTokenSaverMcp ran but $(TokenSaverMcpStagedExe) still doesn't exist. Run scripts\publish-tokensaver-for-wix.ps1 manually and check its output for the real dotnet publish failure." />
   </Target>
 </Project>
