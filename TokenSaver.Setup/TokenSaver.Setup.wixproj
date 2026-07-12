@@ -134,7 +134,9 @@
        of letting the build limp forward into a confusing WIX0103 deep inside .wxs
        compilation. -->
   <ItemGroup>
-    <PackageReference Update="Nerdbank.GitVersioning" Version="3.10.85" />
+    <PackageReference Update="Nerdbank.GitVersioning" Version="3.10.91">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
   <!-- Resolves MyAppVersion/GitCommitHash via `dotnet nbgv` for EVERY build path (plain
        `dotnet build TokenSaverMCP.slnx`, VS "Build Solution", and the publish script), instead
@@ -157,17 +159,14 @@
        restore` failing in a locked-down environment — so the wixproj still builds standalone. -->
   <Target Name="ResolveMyAppVersionFromNbgv" Condition="'$(_MyAppVersionWasUnset)' == 'true'">
     <Exec Command="dotnet tool restore" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" />
-
     <Exec Command="dotnet nbgv get-version -v SimpleVersion" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="_NbgvSimpleVersionLines" />
       <Output TaskParameter="ExitCode" PropertyName="_NbgvSimpleVersionExitCode" />
     </Exec>
-
     <Exec Command="dotnet nbgv get-version -v GitCommitIdShort" WorkingDirectory="$(MSBuildThisFileDirectory)..\..\.." ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="_NbgvGitHashLines" />
       <Output TaskParameter="ExitCode" PropertyName="_NbgvGitHashExitCode" />
     </Exec>
-
     <PropertyGroup Condition="'$(_NbgvSimpleVersionExitCode)' == '0' AND '@(_NbgvSimpleVersionLines)' != ''">
       <MyAppVersion>@(_NbgvSimpleVersionLines)</MyAppVersion>
     </PropertyGroup>
@@ -180,10 +179,8 @@
     <PropertyGroup Condition="'$(GitCommitHash)' == ''">
       <GitCommitHash>unknown</GitCommitHash>
     </PropertyGroup>
-
     <Message Importance="high" Text="TokenSaver.Setup: MyAppVersion=$(MyAppVersion) GitCommitHash=$(GitCommitHash)" />
   </Target>
-
   <Target Name="PublishTokenSaverMcp" Inputs="$(TokenSaverMcpCsproj);@(_TokenSaverMcpPublishInputs)" Outputs="$(TokenSaverMcpStagedExe)">
     <Message Importance="high" Text="TokenSaver.Setup: publishing TokenSaver.MCP to $(PublishDir) ..." />
     <!--

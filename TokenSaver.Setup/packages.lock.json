@@ -4,9 +4,9 @@
     "native,Version=v0.0": {
       "Nerdbank.GitVersioning": {
         "type": "Direct",
-        "requested": "[3.10.85, )",
-        "resolved": "3.10.85",
-        "contentHash": "smhqiTAbnI/6NRn+k7m+a65qKY7nREbnFqFgqxiw3JS8kXiBUOxdCxIZFP9TOpCsoh46DbMlBlcd+dWQYAVVCA=="
+        "requested": "[3.10.91, )",
+        "resolved": "3.10.91",
+        "contentHash": "9MtEXm/um2lQAEoek1EkF4CXNH4JuXxv2jV3Ew2XlzP0LXxFaFiECS7ji8zf1ZaMnPGYbbom+Nm6y4ADc5HNHQ=="
       },
       "WixToolset.Firewall.wixext": {
         "type": "Direct",
@@ -20,10 +20,6 @@
         "resolved": "6.0.0",
         "contentHash": "N6tbkMMnxugXyBcNKzRI10OciMxPOa12mTSZ54llrd1x/c4XxbjUyXPhAGaVse+/gYJ8XZqgv3BprTqoEuqDwg=="
       }
-    },
-    "native,Version=v0.0/win": {},
-    "native,Version=v0.0/win-arm64": {},
-    "native,Version=v0.0/win-x64": {},
-    "native,Version=v0.0/win-x86": {}
+    }
   }
 }
