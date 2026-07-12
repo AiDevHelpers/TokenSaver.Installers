@@ -1,7 +1,26 @@
 {
   "version": 1,
   "dependencies": {
-    "native,Version=v0.0": {},
+    "native,Version=v0.0": {
+      "Nerdbank.GitVersioning": {
+        "type": "Direct",
+        "requested": "[3.10.85, )",
+        "resolved": "3.10.85",
+        "contentHash": "smhqiTAbnI/6NRn+k7m+a65qKY7nREbnFqFgqxiw3JS8kXiBUOxdCxIZFP9TOpCsoh46DbMlBlcd+dWQYAVVCA=="
+      },
+      "WixToolset.Firewall.wixext": {
+        "type": "Direct",
+        "requested": "[6.0.0, 6.0.0]",
+        "resolved": "6.0.0",
+        "contentHash": "SAC8WHnFj6OzOnObiYHM0otkEwCSv2FxOjlxcL8dsj2OsnCfBpnfEZD00kpwKg/Bo1D4UWZOHMp+IQaP6gozrw=="
+      },
+      "WixToolset.Util.wixext": {
+        "type": "Direct",
+        "requested": "[6.0.0, 6.0.0]",
+        "resolved": "6.0.0",
+        "contentHash": "N6tbkMMnxugXyBcNKzRI10OciMxPOa12mTSZ54llrd1x/c4XxbjUyXPhAGaVse+/gYJ8XZqgv3BprTqoEuqDwg=="
+      }
+    },
     "native,Version=v0.0/win": {},
     "native,Version=v0.0/win-arm64": {},
     "native,Version=v0.0/win-x64": {},
