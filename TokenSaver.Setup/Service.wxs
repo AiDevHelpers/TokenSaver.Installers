@@ -34,12 +34,9 @@
                sc.exe create TokenSaverMCP binPath= "...\TokenSaver.MCP.exe" start= auto
                sc.exe config  TokenSaverMCP binPath= "...\TokenSaver.MCP.exe" start= auto
                sc.exe description TokenSaverMCP "Local Ollama-backed MCP server ..." -->
-        <!-- Dependency on DraftModelLoader (the router service) tells the SCM to start
-             DraftModelLoader first; if DraftModelLoader is stopped, Windows also stops
-             TokenSaverMCP before it. OllamaService.WaitForReadyAsync at startup already
-             tolerates DraftModel not being up yet, so this is a start-ordering hint, not a
-             hard requirement — TokenSaverMCP still won't fail to start if the dependency
-             is momentarily absent (e.g. mid-upgrade). -->
+        <!-- No service dependency. A dependency on a service that is not installed makes Windows
+             refuse to start TokenSaverMCP (error 1075), and the MSI then fails with 1920 and
+             rolls back. TokenSaverMCP does not need DraftModelLoader; it waits for Ollama itself. -->
         <ServiceInstall Id="TokenSaverMcpServiceInstall"
                          Name="TokenSaverMCP"
                          DisplayName="TokenSaver MCP"
@@ -48,7 +45,6 @@
                          Start="auto"
                          ErrorControl="normal"
                          Account="LocalSystem">
-          <ServiceDependency Id="DraftModelLoader" />
         </ServiceInstall>
 
         <!-- Equivalent of the old [Run] "sc.exe start" (start="install"), the
