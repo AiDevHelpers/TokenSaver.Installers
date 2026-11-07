@@ -36,7 +36,7 @@
                sc.exe description TokenSaverMCP "Local Ollama-backed MCP server ..." -->
         <!-- No service dependency. A dependency on a service that is not installed makes Windows
              refuse to start TokenSaverMCP (error 1075), and the MSI then fails with 1920 and
-             rolls back. TokenSaverMCP does not need DraftModelLoader; it waits for Ollama itself. -->
+             rolls back. TokenSaverMCP does not need SimpleModelServer; it waits for Ollama itself. -->
         <ServiceInstall Id="TokenSaverMcpServiceInstall"
                          Name="TokenSaverMCP"
                          DisplayName="TokenSaver MCP"

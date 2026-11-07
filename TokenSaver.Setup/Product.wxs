@@ -48,7 +48,7 @@
       <Directory Id="INSTALLFOLDER" Name="TokenSaver" />
     </StandardDirectory>
 
-    <!-- %ProgramData%\TokenSaver — parallel to %ProgramData%\DraftModel, for config/logs
+    <!-- %ProgramData%\TokenSaver — parallel to %ProgramData%\SimpleModelServer, for config/logs
          that should survive an uninstall/reinstall. Matches the [Dirs] section of the old
          .iss. Marked permanent (not removed on uninstall), same as Inno's default behavior
          for [Dirs] entries which Inno does not delete on uninstall unless flagged. -->

@@ -36,7 +36,7 @@
          Historically this literal WAS the normal path for any build that didn't go through
          scripts\publish-tokensaver-for-wix.ps1 (a plain `dotnet build TokenSaverMCP.slnx` or VS
          "Build Solution"), which is why Programs & Features accumulated multiple
-         "TokenSaver MCP" / "DraftModel Loader" entries all stamped 1.0.0: MajorUpgrade detects
+         "TokenSaver MCP" / "SimpleModelServer Loader" entries all stamped 1.0.0: MajorUpgrade detects
          upgrades by comparing Package/@Version under the same UpgradeCode, and an *identical*
          version between installs isn't "newer" or "older" so RemoveExistingProducts never
          fires — each build's freshly auto-generated ProductCode was installed as a brand new
