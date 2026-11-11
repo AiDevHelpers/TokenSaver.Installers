@@ -78,7 +78,9 @@
              PublishDir's top level and is never something the installed app reads, so it must
              never be shipped — exclude the whole subtree rather than relying on it staying
              deleted on disk. -->
+        <?if $(var.HasStageBuildDir) = 1 ?>
         <Exclude Files="$(PublishDir)\build\**" />
+        <?endif?>
       </Files>
     </ComponentGroup>
 

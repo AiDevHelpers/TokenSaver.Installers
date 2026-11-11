@@ -73,6 +73,15 @@
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
   <PropertyGroup>
+    <!-- ICE60 flags e_sqlite3.dll (a language-neutral native DLL with a version resource) for a
+         missing Language. It has no language to declare; suppress only this ICE. -->
+    <SuppressIces>$(SuppressIces);ICE60</SuppressIces>
+    <!-- Product.wxs excludes the stray PublishDir\build subtree only when it exists (WiX rejects a missing path). -->
+    <HasStageBuildDir Condition="Exists('$(PublishDir)\build')">1</HasStageBuildDir>
+    <HasStageBuildDir Condition="'$(HasStageBuildDir)' == ''">0</HasStageBuildDir>
+    <DefineConstants>$(DefineConstants);HasStageBuildDir=$(HasStageBuildDir)</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup>
     <TokenSaverMcpCsproj>$(MSBuildThisFileDirectory)..\..\..\src\Host\TokenSaver.MCP\TokenSaver.MCP.csproj</TokenSaverMcpCsproj>
     <TokenSaverMcpStagedExe>$(PublishDir)\TokenSaver.MCP.exe</TokenSaverMcpStagedExe>
   </PropertyGroup>
