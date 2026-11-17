@@ -89,5 +89,35 @@
     <InstallExecuteSequence>
       <Custom Action="FailureActionsCommand" After="StartServices" Condition="NOT Installed" />
     </InstallExecuteSequence>
+
+    <!-- Endpoint token access. TokenSaver.MCP reads/writes %ProgramData%\TokenSaver\auth-token and gives the
+         "TokenSaver Users" local group read access to it (docs/Host-MCP/config-behavior-contract.md). Create the
+         group before the service starts, and put the installing user in it so their own clients can read the token.
+         More users are added later from "TokenSaver: Manage Users" in VS Code or the Visual Studio settings.
+         Return="ignore": an already existing group or membership makes net.exe exit non-zero, which is fine. -->
+    <SetProperty Id="CreateUsersGroupCommand"
+                 Sequence="execute"
+                 Before="CreateUsersGroupCommand"
+                 Value="&quot;[SystemFolder]net.exe&quot; localgroup &quot;TokenSaver Users&quot; /add" />
+    <CustomAction Id="CreateUsersGroupCommand"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Return="ignore"
+                  Impersonate="no" />
+    <SetProperty Id="AddInstallerToGroupCommand"
+                 Sequence="execute"
+                 Before="AddInstallerToGroupCommand"
+                 Value="&quot;[SystemFolder]net.exe&quot; localgroup &quot;TokenSaver Users&quot; &quot;[%USERDOMAIN]\[LogonUser]&quot; /add" />
+    <CustomAction Id="AddInstallerToGroupCommand"
+                  BinaryRef="Wix4UtilCA_X86"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Return="ignore"
+                  Impersonate="no" />
+    <InstallExecuteSequence>
+      <Custom Action="CreateUsersGroupCommand" Before="StartServices" Condition="NOT REMOVE" />
+      <Custom Action="AddInstallerToGroupCommand" After="CreateUsersGroupCommand" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
   </Fragment>
 </Wix>
